@@ -183,7 +183,7 @@ class MiMotionRunner:
             return "登陆失败！", False
 
         # step = str(random.randint(min_step, max_step))
-        step = str(10000)
+        step = str(12934)
         self.log_str += f"已设置为随机步数范围({min_step}~{max_step}) 随机值:{step}\n"
         ok, msg = zeppHelper.post_fake_brand_data(step, app_token, self.user_id)
         return f"修改步数（{step}）[" + msg + "]", ok
