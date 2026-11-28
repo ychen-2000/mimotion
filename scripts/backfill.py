@@ -84,6 +84,11 @@ def expand_dates(values: Iterable[str]) -> list[str]:
     return list(dict.fromkeys(expanded))
 
 
+def detect_ref() -> str:
+    """Return the branch to dispatch; GitHub dispatch API requires an explicit ref."""
+    return "master"
+
+
 def detect_repo() -> str:
     env_repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
     if env_repo:
@@ -113,8 +118,7 @@ def dispatch_via_gh(repo: str, ref: str | None, date: str) -> str:
         "-f",
         "inputs[target_date]=" + date,
     ]
-    if ref:
-        cmd += ["-f", "ref=" + ref]
+    cmd += ["-f", "ref=" + (ref or detect_ref())]
     result = subprocess.run(cmd, capture_output=True, text=True)
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip() or "未知错误"
@@ -126,9 +130,7 @@ def dispatch_via_rest(repo: str, ref: str | None, date: str) -> str:
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
     if not token:
         raise RuntimeError("未找到 gh 或 GITHUB_TOKEN/GH_TOKEN，无法触发工作流")
-    payload: dict[str, object] = {"inputs": {"target_date": date}}
-    if ref:
-        payload["ref"] = ref
+    payload: dict[str, object] = {"ref": ref or detect_ref(), "inputs": {"target_date": date}}
     request = urllib.request.Request(
         f"https://api.github.com/repos/{repo}/actions/workflows/{WORKFLOW_FILE}/dispatches",
         data=json.dumps(payload).encode("utf-8"),
@@ -185,11 +187,14 @@ def main() -> int:
             return 0
 
     failures = 0
+    processed = 0
+    succeeded = 0
     for index, date in enumerate(dates):
         if index and args.delay > 0 and not args.dry_run:
             time.sleep(args.delay)
         try:
             method = dispatch(repo, args.ref, date, args.dry_run)
+            succeeded += 1
             print(f"OK   {date} 已触发（{method}）")
         except RuntimeError as exc:
             failures += 1
@@ -197,10 +202,12 @@ def main() -> int:
             if not args.continue_on_error:
                 print("已停止，剩余日期未触发。", file=sys.stderr)
                 break
+        finally:
+            processed += 1
 
     print(
-        f"完成：成功 {len(dates) - failures} 个，失败 {failures} 个"
-        f"（共 {len(dates)} 个）"
+        f"完成：成功 {succeeded} 个，失败 {failures} 个"
+        f"（已处理 {processed} 个，共 {len(dates)} 个）"
     )
     print(f"查看执行记录：https://github.com/{repo}/actions/workflows/{WORKFLOW_FILE}")
     return 1 if failures else 0
