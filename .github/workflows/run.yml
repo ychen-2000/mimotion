@@ -4,6 +4,11 @@ on:
   schedule:
     - cron: '46 3,5,7,9,11,13 * * *'
   workflow_dispatch:
+    inputs:
+      target_date:
+        description: '补刷日期（YYYY-MM-DD），留空则刷北京时间当天'
+        required: false
+        type: string
 
 jobs:
   build:
@@ -28,14 +33,120 @@ jobs:
         env:
             CONFIG: ${{ secrets.CONFIG }}
             AES_KEY: ${{ secrets.AES_KEY }}
+            MIMOTION_DATE: ${{ inputs.target_date }}
+            GITHUB_EVENT_NAME: ${{ github.event_name }}
         run: |
           pip3 install requests pytz pycryptodome
           python3 main.py
 
       - name: persist tokens
+        if: always()
         run: |
           git config user.name github-actions
           git config user.email github-actions@users.noreply.github.com
           git add .
+          if git diff --cached --quiet; then
+            echo "没有需要提交的 token 变更"
+            exit 0
+          fi
           git commit -m "persist tokens trigger by ${{ github.event_name }}"
           git push origin master
+
+      - name: 失败时推送 PushPlus
+        if: failure()
+        env:
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TARGET_DATE: ${{ inputs.target_date }}
+        run: |
+          if [ -z "$PUSHPLUS_TOKEN" ]; then
+            echo "未配置 PUSHPLUS_TOKEN，跳过失败提醒"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          token = os.environ["PUSHPLUS_TOKEN"]
+          target_date = os.environ.get("TARGET_DATE", "").strip() or "北京时间当天"
+          run_url = os.environ.get("RUN_URL", "")
+          payload = {
+              "token": token,
+              "title": f"mimotion 刷步数失败（{target_date}）",
+              "content": (
+                  f"<div>目标日期：{target_date}</div>"
+                  f"<div>工作流执行失败，请查看日志：</div>"
+                  f'<div><a href="{run_url}">{run_url}</a></div>'
+              ),
+              "template": "html",
+          }
+          req = urllib.request.Request(
+              "https://www.pushplus.plus/send",
+              data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+              headers={"Content-Type": "application/json; charset=utf-8"},
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=20) as resp:
+              result = json.loads(resp.read().decode("utf-8", "replace"))
+          if str(result.get("code")) != "200":
+              raise SystemExit(f"PushPlus 推送失败：{result}")
+          print(f"PushPlus 推送成功：{result.get('msg', '')}")
+          PY
+
+      - name: 账号刷步失败时推送 PushPlus
+        if: always() && hashFiles('mimotion_result.json') != ''
+        env:
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TARGET_DATE: ${{ inputs.target_date }}
+        run: |
+          if [ -z "$PUSHPLUS_TOKEN" ]; then
+            echo "未配置 PUSHPLUS_TOKEN，跳过账号失败提醒"
+            exit 0
+          fi
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          failed_count = 0
+          try:
+              with open("mimotion_result.json", encoding="utf-8") as f:
+                  result = json.load(f)
+              failed_count = int(result.get("failed_count") or 0)
+          except Exception as exc:
+              print(f"读取 mimotion_result.json 失败：{exc}")
+              raise SystemExit(0)
+
+          if failed_count <= 0:
+              print("没有账号失败，跳过提醒")
+              raise SystemExit(0)
+
+          token = os.environ["PUSHPLUS_TOKEN"]
+          target_date = os.environ.get("TARGET_DATE", "").strip() or "北京时间当天"
+          run_url = os.environ.get("RUN_URL", "")
+          content = (
+              f"<div>目标日期：{target_date}</div>"
+              f"<div>失败账号数：{failed_count}</div>"
+              f"<div>详情请查看日志：</div>"
+              f'<div><a href="{run_url}">{run_url}</a></div>'
+          )
+          payload = {
+              "token": token,
+              "title": f"mimotion 账号刷步失败（{target_date}）",
+              "content": content,
+              "template": "html",
+          }
+          req = urllib.request.Request(
+              "https://www.pushplus.plus/send",
+              data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+              headers={"Content-Type": "application/json; charset=utf-8"},
+              method="POST",
+          )
+          with urllib.request.urlopen(req, timeout=20) as resp:
+              response = json.loads(resp.read().decode("utf-8", "replace"))
+          if str(response.get("code")) != "200":
+              raise SystemExit(f"PushPlus 推送失败：{response}")
+          print(f"PushPlus 账号失败提醒推送成功：{response.get('msg', '')}")
+          PY

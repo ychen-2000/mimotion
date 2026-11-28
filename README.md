@@ -155,6 +155,28 @@
   启用，然后左侧选择 `刷步数` 之后，再点击 `enable workflow` 启用工作流。请确保开启工作流，否则不会定时执行。
 - 点击右侧的`Run workflow`触发执行，触发后刷新即可查看执行记录。验证是否正确配置并执行刷步数。
 
+### 补刷指定日期
+
+当某天工作流失败、需要补刷时，在本地仓库根目录执行：
+
+```bash
+python3 scripts/backfill.py 2026-11-20
+python3 scripts/backfill.py 2026-11-20 2026-11-21
+python3 scripts/backfill.py 2026-11-20..2026-11-22
+python3 scripts/backfill.py --dry-run 2026-11-20
+python3 scripts/backfill.py 2026-11-23..2026-11-27
+```
+
+默认会先展示日期并要求输入 `y` 确认；确认后才会触发。若不需要确认，可加 `--yes`。
+
+脚本通过已登录的 `gh` 命令行（或 `GITHUB_TOKEN`/`GH_TOKEN`）触发名为「刷步数」的工作流，并把日期传入 `MIMOTION_DATE`。不指定日期时，工作流仍按北京时间当天执行。
+
+手动触发（包括脚本触发和 GitHub 页面 `Run workflow`）时，步数会使用 CONFIG 中配置的完整范围，不再按当前时间比例折算，并保底 9000 步以上；定时任务仍按当前时间比例计算。
+
+如果希望工作流失败时收到 PushPlus 提醒，请在仓库 `Settings → Secrets and variables → Actions → New repository secret` 新增可选 Secret：`PUSHPLUS_TOKEN`，值为 PushPlus 个人 token。也可以复用 `CONFIG` 中已有的 `PUSH_PLUS_TOKEN`，只需把它同时配置为该 Secret。未配置时不会发送失败提醒，不影响原有推送和刷步数逻辑。
+
+账号刷步失败时会单独推送 PushPlus 提醒，但不会让 `刷步数` 工作流失败；这样 `Random Cron` 仍可在本次执行成功后正常更新随机 cron。只有真正的运行故障（如 checkout、pip、Python 异常、token 提交失败等）才会触发工作流失败提醒。
+
 ### 六、感谢列表
 
 本项目基于 `https://github.com/xunichanghuan/mimotion(已被ban)`

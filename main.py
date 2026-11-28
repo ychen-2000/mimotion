@@ -33,6 +33,19 @@ def get_min_max_by_time(hour=None, minute=None):
     return int(time_rate * min_step), int(time_rate * max_step)
 
 
+def get_min_max_for_run():
+    """手动执行（含补刷）直接用完整步数范围；定时执行按当前时间比例计算。"""
+    min_step = get_int_value_default(config, 'MIN_STEP', 18000)
+    max_step = get_int_value_default(config, 'MAX_STEP', 25000)
+    if os.environ.get("GITHUB_EVENT_NAME", "").strip() == "workflow_dispatch":
+        # 手动补刷保底 9000 步，避免 CONFIG 里 MIN_STEP 配得过小
+        min_step = max(min_step, 9000)
+        max_step = max(max_step, min_step)
+        print(f"手动触发：使用完整步数范围 {min_step}~{max_step}，不按当前时间比例折算")
+        return min_step, max_step
+    return get_min_max_by_time()
+
+
 # 虚拟ip地址
 def fake_ip():
     # 随便找的国内IP段：223.64.0.0 - 223.117.255.255
@@ -239,6 +252,15 @@ def execute():
         summary = f"\n执行账号总数{total}，成功：{success_count}，失败：{total - success_count}"
         print(summary)
         push_util.push_results(push_results, summary, push_config)
+        if total == 0 or success_count < total:
+            print("::warning::存在执行失败的账号，已通过推送通知，但不中断工作流")
+        with open("mimotion_result.json", "w", encoding="utf-8") as f:
+            json.dump({
+                "success_count": success_count,
+                "total": total,
+                "failed_count": total - success_count,
+                "failed": [r for r in push_results if r.get('success') is not True],
+            }, f, ensure_ascii=False)
     else:
         print(f"账号数长度[{len(user_list)}]和密码数长度[{len(passwd_list)}]不匹配，跳过执行")
         exit(1)
@@ -315,7 +337,7 @@ if __name__ == "__main__":
         if users is None or passwords is None:
             print("未正确配置账号密码，无法执行")
             exit(1)
-        min_step, max_step = get_min_max_by_time()
+        min_step, max_step = get_min_max_for_run()
         use_concurrent = config.get('USE_CONCURRENT')
         if use_concurrent is not None and use_concurrent == 'True':
             use_concurrent = True
