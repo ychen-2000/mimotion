@@ -34,7 +34,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repo", help="仓库 owner/repo，默认自动检测")
     parser.add_argument("--ref", help="工作流所在分支，默认仓库默认分支")
     parser.add_argument(
-        "--delay", type=float, default=10.0, help="多个日期之间等待秒数（默认 10）"
+        "--delay", type=float, default=45.0, help="多个日期之间等待秒数（默认 45，避免并发 push 冲突）"
     )
     parser.add_argument(
         "--yes", action="store_true", help="跳过交互确认，直接触发"

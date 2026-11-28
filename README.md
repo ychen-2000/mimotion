@@ -173,7 +173,7 @@ python3 scripts/backfill.py 2026-11-23..2026-11-27
 
 手动触发（包括脚本触发和 GitHub 页面 `Run workflow`）时，步数会使用 CONFIG 中配置的完整范围，不再按当前时间比例折算，并保底 9000 步以上；定时任务仍按当前时间比例计算。
 
-如果希望工作流失败时收到 PushPlus 提醒，请在仓库 `Settings → Secrets and variables → Actions → New repository secret` 新增可选 Secret：`PUSHPLUS_TOKEN`，值为 PushPlus 个人 token。也可以复用 `CONFIG` 中已有的 `PUSH_PLUS_TOKEN`，只需把它同时配置为该 Secret。未配置时不会发送失败提醒，不影响原有推送和刷步数逻辑。
+失败提醒会复用 `CONFIG` 中已有的 `PUSH_PLUS_TOKEN`，无需额外配置。若 `CONFIG` 中未配置 PushPlus token，则不会发送失败提醒，不影响原有推送和刷步数逻辑。
 
 账号刷步失败时会单独推送 PushPlus 提醒，但不会让 `刷步数` 工作流失败；这样 `Random Cron` 仍可在本次执行成功后正常更新随机 cron。只有真正的运行故障（如 checkout、pip、Python 异常、token 提交失败等）才会触发工作流失败提醒。
 

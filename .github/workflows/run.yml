@@ -1,5 +1,9 @@
 name: 刷步数
 
+concurrency:
+  group: mimotion-brush-steps
+  cancel-in-progress: false
+
 on:
   schedule:
     - cron: '52 3,5,7,9,11,13 * * *'
@@ -55,20 +59,25 @@ jobs:
       - name: 失败时推送 PushPlus
         if: failure()
         env:
+          CONFIG: ${{ secrets.CONFIG }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           TARGET_DATE: ${{ inputs.target_date }}
         run: |
-          if [ -z "$PUSHPLUS_TOKEN" ]; then
-            echo "未配置 PUSHPLUS_TOKEN，跳过失败提醒"
-            exit 0
-          fi
           python3 - <<'PY'
           import json
           import os
           import urllib.request
 
-          token = os.environ["PUSHPLUS_TOKEN"]
+          token = os.environ.get("PUSHPLUS_TOKEN", "").strip()
+          if not token:
+              try:
+                  token = str(json.loads(os.environ.get("CONFIG", "{}")).get("PUSH_PLUS_TOKEN") or "").strip()
+              except Exception:
+                  pass
+          if not token or token.upper() == "NO":
+              print("未配置 PushPlus token，跳过失败提醒")
+              raise SystemExit(0)
           target_date = os.environ.get("TARGET_DATE", "").strip() or "北京时间当天"
           run_url = os.environ.get("RUN_URL", "")
           payload = {
@@ -97,18 +106,25 @@ jobs:
       - name: 账号刷步失败时推送 PushPlus
         if: always() && hashFiles('mimotion_result.json') != ''
         env:
+          CONFIG: ${{ secrets.CONFIG }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           TARGET_DATE: ${{ inputs.target_date }}
         run: |
-          if [ -z "$PUSHPLUS_TOKEN" ]; then
-            echo "未配置 PUSHPLUS_TOKEN，跳过账号失败提醒"
-            exit 0
-          fi
           python3 - <<'PY'
           import json
           import os
           import urllib.request
+
+          token = os.environ.get("PUSHPLUS_TOKEN", "").strip()
+          if not token:
+              try:
+                  token = str(json.loads(os.environ.get("CONFIG", "{}")).get("PUSH_PLUS_TOKEN") or "").strip()
+              except Exception:
+                  pass
+          if not token or token.upper() == "NO":
+              print("未配置 PushPlus token，跳过账号失败提醒")
+              raise SystemExit(0)
 
           failed_count = 0
           try:
@@ -123,7 +139,6 @@ jobs:
               print("没有账号失败，跳过提醒")
               raise SystemExit(0)
 
-          token = os.environ["PUSHPLUS_TOKEN"]
           target_date = os.environ.get("TARGET_DATE", "").strip() or "北京时间当天"
           run_url = os.environ.get("RUN_URL", "")
           content = (
